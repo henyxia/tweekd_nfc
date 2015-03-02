@@ -130,6 +130,7 @@ void loop(void)
 				Serial.print((char) dataf[6]);
 				Serial.print((char) dataf[7]);
 			}
+			tagDetected = false;
 		}
 		else
 			Serial.print(SERIAL_ERROR);
