@@ -2,128 +2,142 @@
 #include <PN532_SPI.h>
 #include "PN532.h"
 
+#define	MODEL_QUERY			0x80
+#define	SERIAL_ERROR		0x55
+#define	NFC_TAGQUERY		0x82
+#define	NFC_TAGQUERY_UID	0x84
+#define	NFC_ARDUINO			0x02
+#define	NFC_NOTAG			0x81
+
+#define	NFC_TYPE_PROFESSOR	0x00
+#define	NFC_TYPE_STUDENT	0x01
+
+boolean	tagDetected;
+boolean	tagType;
+
 PN532_SPI pn532spi(SPI, 10);
 PN532 nfc(pn532spi);
 
-void setup(void) {
+void setup(void)
+{
+	int ser;
+
 	Serial.begin(115200);
-	Serial.println("Hello!");
 
 	nfc.begin();
 
 	uint32_t versiondata = nfc.getFirmwareVersion();
-	if (! versiondata)
+	if(!versiondata)
 	{
-		Serial.print("Didn't find PN53x board");
+		Serial.print(SERIAL_ERROR);
 		while (1);
-	}
-	//Serial.print("Found chip PN5"); Serial.println((versiondata>>24) & 0xFF, HEX); 
-	Serial.print("Firmware ver. "); Serial.print((versiondata>>16) & 0xFF, DEC); 
-	Serial.print('.'); Serial.println((versiondata>>8) & 0xFF, DEC);
-  
-	// configure board to read RFID tags
+	}  
+
 	nfc.SAMConfig();
   
-	Serial.println("Waiting for an ISO14443A Card ...");
+	tagDetected = false;
+
+	do
+	{
+		while(!(Serial.available() > 0));
+		ser = Serial.read();
+		if(ser == MODEL_QUERY)
+			Serial.print(NFC_ARDUINO);
+		else
+			Serial.print(SERIAL_ERROR);
+	}while(ser != MODEL_QUERY);
 }
 
 
 void loop(void)
 {
 	uint8_t success;
-	uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
-	uint8_t uidLength;                        // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
+	uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };
+	uint8_t uidLength;
+	uint8_t data1[16];
+	uint8_t data2[16];
+	uint8_t dataf[8];
+	int ser;
     
-	// Wait for an ISO14443A type cards (Mifare, etc.).  When one is found
-	// 'uid' will be populated with the UID, and uidLength will indicate
-	// if the uid is 4 bytes (Mifare Classic) or 7 bytes (Mifare Ultralight)
 	success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength);
-  
-	if(success)
+
+	if(success && !tagDetected)
 	{
-		// Display some basic information about the card
-		Serial.println("Found an ISO14443A card");
-		Serial.print("  UID Length: ");Serial.print(uidLength, DEC);Serial.println(" bytes");
-		Serial.print("  UID Value: ");
-		nfc.PrintHex(uid, uidLength);
-		Serial.println("");
-    
 		if(uidLength == 4)
 		{
-			// We probably have a Mifare Classic card ... 
-			Serial.println("Seems to be a Mifare Classic card (4 byte UID)");
-	  
-			 // Now we need to try to authenticate it for read/write access
-			// Try with the factory default KeyA: 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF
-			Serial.println("Trying to authenticate block 4 with default KEYA value");
 			uint8_t keya[6] = { 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5 };
-	  
-			// Start with block 4 (the first block of sector 1) since sector 0
-			// contains the manufacturer data and it's probably better just
-			// to leave it alone unless you know what you're doing
-			success = nfc.mifareclassic_AuthenticateBlock(uid, uidLength, 44, 0, keya);
-	  
+			success = nfc.mifareclassic_AuthenticateBlock(uid, uidLength, 44, 0, keya);  
 			if(success)
 			{
-				Serial.println("Sector 1 (Blocks 4..7) has been authenticated");
-				uint8_t data[16];
-		
-				// If you want to write something to block 4 to test with, uncomment
-				// the following line and this text should be read back in a minute
-				// data = { 'a', 'd', 'a', 'f', 'r', 'u', 'i', 't', '.', 'c', 'o', 'm', 0, 0, 0, 0};
-				// success = nfc.mifareclassic_WriteDataBlock (4, data);
-
-				// Try to read the contents of block 4
-				success = nfc.mifareclassic_ReadDataBlock(44, data);
+				success = nfc.mifareclassic_ReadDataBlock(44, data1);
 		
 				if(success)
 				{
-					// Data seems to have been read ... spit it out
-					Serial.println("Reading Block 4:");
-					nfc.PrintHexChar(data, 16);
-					nfc.mifareclassic_ReadDataBlock(45, data);
-					nfc.PrintHexChar(data, 16);
-					nfc.mifareclassic_ReadDataBlock(46, data);
-					nfc.PrintHexChar(data, 16);
-					Serial.println("");
-		  
-					// Wait a bit before reading the card again
-					delay(1000);
+					//nfc.PrintHexChar(data1, 16);
+					success = nfc.mifareclassic_ReadDataBlock(45, data2);
+
+					if(success)
+					{
+						tagDetected = true;
+						if(data1[4] == data1[15] &&
+						data1[5] == data2[0] &&
+						data1[6] == data2[1] &&
+						data1[7] == data2[2] &&
+						data1[8] == data2[3] &&
+						data1[9] == data2[4])
+						{
+							tagType = NFC_TYPE_PROFESSOR;
+							dataf[0] = data1[4];
+							dataf[1] = data1[5];
+							dataf[2] = data1[6];
+							dataf[3] = data1[7];
+							dataf[4] = data1[8];
+							dataf[5] = data1[9];
+						}
+						else
+						{
+							tagType = NFC_TYPE_STUDENT;
+							dataf[0] = data1[15];
+							dataf[1] = data2[0];
+							dataf[2] = data2[1];
+							dataf[3] = data2[2];
+							dataf[4] = data2[3];
+							dataf[5] = data2[4];
+							dataf[6] = data2[5];
+							dataf[7] = data2[6];
+						}
+					}
 				}
-				else
-				{
-					Serial.println("Ooops ... unable to read the requested block.  Try another key?");
-				}
-			}
-			else
-			{
-				Serial.println("Ooops ... authentication failed: Try another key?");
-			}
-		}
-    
-		if(uidLength == 7)
-		{
-			// We probably have a Mifare Ultralight card ...
-			Serial.println("Seems to be a Mifare Ultralight tag (7 byte UID)");
-	  
-			// Try to read the first general-purpose user page (#4)
-			Serial.println("Reading page 4");
-			uint8_t data[32];
-			success = nfc.mifareultralight_ReadPage (4, data);
-			if(success)
-			{
-				// Data seems to have been read ... spit it out
-				nfc.PrintHexChar(data, 4);
-				Serial.println("");
-		
-				// Wait a bit before reading the card again
-				delay(1000);
-			}
-			else
-			{
-				Serial.println("Ooops ... unable to read the requested page!?");
 			}
 		}
 	}
+	else if(tagDetected)
+	{
+		while(!(Serial.available() > 0));
+		ser = Serial.read();
+		if(ser == NFC_TAGQUERY)
+			Serial.print(tagType);
+		else if(ser == NFC_TAGQUERY_UID)
+		{
+			Serial.print((char) dataf[0]);
+			Serial.print((char) dataf[1]);
+			Serial.print((char) dataf[2]);
+			Serial.print((char) dataf[3]);
+			Serial.print((char) dataf[4]);
+			Serial.print((char) dataf[5]);
+			if(tagType == NFC_TYPE_STUDENT)
+			{
+				Serial.print((char) dataf[6]);
+				Serial.print((char) dataf[7]);
+			}
+		}
+		else
+			Serial.print(SERIAL_ERROR);
+	}
+	else
+	{
+		if(Serial.available() > 0)
+			if(Serial.read() == NFC_TAGQUERY)
+				Serial.print(NFC_NOTAG);
+	}
 }
-
