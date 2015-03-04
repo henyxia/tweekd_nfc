@@ -3,6 +3,18 @@
 #include "PN532.h"
 #include <PN532_SPI/PN532_SPI.h>
 
+#define __SCREEN_DEBUG__
+
+#ifdef __SCREEN_DEBUG__
+#define	MODEL_QUERY			'A'
+#define	SERIAL_ERROR		'G'
+#define	NFC_TAGQUERY		'C'
+#define	NFC_TAGQUERY_UID	'H'
+#define	NFC_ARDUINO			'B'
+#define	NFC_NOTAG			'D'
+#define	NFC_TYPE_PROFESSOR	'E'
+#define	NFC_TYPE_STUDENT	'F'
+#else
 #define	MODEL_QUERY			0x80
 #define	SERIAL_ERROR		0x55
 #define	NFC_TAGQUERY		0x82
@@ -11,9 +23,12 @@
 #define	NFC_NOTAG			0x81
 #define	NFC_TYPE_PROFESSOR	0x04
 #define	NFC_TYPE_STUDENT	0x01
-#define	CPU_FREQ			16000000L
+#endif
 
-boolean	tagDetected;
+#define	CPU_FREQ			16000000L
+#define	SERIAL_SPEED		19200
+
+boolean	tagDetected = false;
 boolean	tagType;
 
 PN532_SPI pn532spi(SPI, 10);
@@ -44,12 +59,10 @@ void setup(void)
 {
 	int ser;
 
-	init_serial(9600);
+	init_serial(SERIAL_SPEED);
 
-	send_serial('1');
 	nfc.begin();
 
-	send_serial('2');
 	uint32_t versiondata = nfc.getFirmwareVersion();
 	if(!versiondata)
 	{
@@ -57,11 +70,8 @@ void setup(void)
 		while (1);
 	}  
 
-	send_serial('3');
 	nfc.SAMConfig();
   
-	tagDetected = false;
-
 	do
 	{
 		ser = get_serial();
@@ -72,17 +82,17 @@ void setup(void)
 	}while(ser != MODEL_QUERY);
 }
 
+uint8_t success;
+uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };
+uint8_t uidLength;
+uint8_t data1[16];
+uint8_t data2[16];
+char  professorTag[7];
+char  studentTag[9] = {'0', '1', '2', '3', '4', '5', '6', '7'};
+int ser;
 
 void loop(void)
 {
-	uint8_t success;
-	uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };
-	uint8_t uidLength;
-	uint8_t data1[16];
-	uint8_t data2[16];
-        char  professorTag[7];
-        char  studentTag[9];
-	int ser;
     
 	success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength);
 
@@ -95,10 +105,11 @@ void loop(void)
 			if(success)
 			{
 				success = nfc.mifareclassic_ReadDataBlock(44, data1);
-		
+
+				//_delay_ms(50);
+
 				if(success)
 				{
-					//nfc.PrintHexChar(data1, 16);
 					success = nfc.mifareclassic_ReadDataBlock(45, data2);
 
 					if(success)
@@ -111,30 +122,40 @@ void loop(void)
 						data1[8] == data2[3] &&
 						data1[9] == data2[4])
 						{
+							//send_serial('M');
 							tagType = NFC_TYPE_PROFESSOR;
-							professorTag[0] = (char) 48 + data1[4];
-							professorTag[1] = (char) 48 + data1[5];
-							professorTag[2] = (char) 48 + data1[6];
-							professorTag[3] = (char) 48 + data1[7];
-							professorTag[4] = (char) 48 + data1[8];
-							professorTag[5] = (char) 48 + data1[9];
+							professorTag[0] = data1[4];
+							professorTag[1] = data1[5];
+							professorTag[2] = data1[6];
+							professorTag[3] = data1[7];
+							professorTag[4] = data1[8];
+							professorTag[5] = data1[9];
 						}
 						else
 						{
+							//send_serial('N');
 							tagType = NFC_TYPE_STUDENT;
-							studentTag[0] = (char) 48 + data1[15];
-							studentTag[1] = (char) 48 + data2[0];
-							studentTag[2] = (char) 48 + data2[1];
-							studentTag[3] = (char) 48 + data2[2];
-							studentTag[4] = (char) 48 + data2[3];
-							studentTag[5] = (char) 48 + data2[4];
-							studentTag[6] = (char) 48 + data2[5];
-							studentTag[7] = (char) 48 + data2[6];
+							studentTag[0] = data1[15];
+							studentTag[1] = data2[0];
+							studentTag[2] = data2[1];
+							studentTag[3] = data2[2];
+							studentTag[4] = data2[3];
+							studentTag[5] = data2[4];
+							studentTag[6] = data2[5];
+							studentTag[7] = data2[6];
 						}
 					}
+					//else
+						//send_serial('L');
 				}
+				//else
+					//send_serial('K');
 			}
+			//else
+				//send_serial('J');
 		}
+		//else
+			//send_serial('I');
 	}
 	else if(tagDetected)
 	{
@@ -144,37 +165,45 @@ void loop(void)
 		else if(ser == NFC_TAGQUERY_UID)
 		{
                     if(tagType == NFC_TYPE_STUDENT)
-                    {/*
-                        Serial.print((char) studentTag[0]);
-						Serial.print((char) studentTag[1]);
-                        Serial.print((char) studentTag[2]);
-						Serial.print((char) studentTag[3]);
-                        Serial.print((char) studentTag[4]);
-						Serial.print((char) studentTag[5]);
-                        Serial.print((char) studentTag[6]);
-						Serial.print((char) studentTag[7]);*/
-                        send_serial(0x10);
-						send_serial(0x20);
-                        send_serial(0x30);
-						send_serial(0x40);
-                        send_serial(0x50);
-						send_serial(0x60);
-	                    send_serial(0x70);
-						send_serial(0x80);
+                    {
+                        send_serial(studentTag[0]);
+						_delay_ms(50);
+						send_serial(studentTag[1]);
+						_delay_ms(50);
+                        send_serial(studentTag[2]);
+						_delay_ms(50);
+						send_serial(studentTag[3]);
+						_delay_ms(50);
+                        send_serial(studentTag[4]);
+						_delay_ms(50);
+						send_serial(studentTag[5]);
+						_delay_ms(50);
+	                    send_serial(studentTag[6]);
+						_delay_ms(50);
+						send_serial(studentTag[7]);
+						_delay_ms(50);
                     }
                     else
                     {
                         send_serial(professorTag[0]);
+                        send_serial(professorTag[1]);
+                        send_serial(professorTag[2]);
+                        send_serial(professorTag[3]);
+                        send_serial(professorTag[4]);
+                        send_serial(professorTag[5]);
                     }
 		    tagDetected = false;
+			_delay_ms(5000);
 		}
 		else
-			send_serial((char) SERIAL_ERROR);
+			send_serial(SERIAL_ERROR);
 	}
 	else
 	{
 		if(get_serial() == NFC_TAGQUERY)
 			send_serial(NFC_NOTAG);
+		else
+			send_serial(SERIAL_ERROR);
 	}
 }
 
@@ -183,8 +212,7 @@ int main(void)
 	setup();
 
 	while(1)
-		send_serial('Y');
-		//loop();
+		loop();
 
 	return 0;
 }

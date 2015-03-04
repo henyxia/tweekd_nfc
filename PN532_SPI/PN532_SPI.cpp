@@ -35,13 +35,9 @@ void PN532_SPI::begin()
 
 void PN532_SPI::wakeup()
 {
-	send_serial('Z');
     digitalWrite(_ss, LOW);
-	send_serial('E');
     delay(2);
-	send_serial('R');
     digitalWrite(_ss, HIGH);
-	send_serial('T');
 }
 
 
